@@ -1,0 +1,28 @@
+<launch>
+  <!-- Arguments -->
+  <arg name="cmd_vel_topic" default="/cmd_vel" />
+  <arg name="odom_topic" default="base_pose_ground_truth" />
+  <arg name="move_forward_only" default="false"/>
+  <arg name="model_type" default="Omni" />
+
+  <!-- move_base -->
+  <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
+    <!-- <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS" /> -->
+    <param name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS" /> 
+    <!--<param name="base_local_planner" value="pose_follower/PoseFollower" />-->
+    <param name="base_global_planner" value="global_planner/GlobalPlanner"/>
+    <rosparam file="$(find robot_nav_node)/param/$(arg model_type)/costmap_common_params.yaml" command="load" ns="global_costmap" />
+    <rosparam file="$(find robot_nav_node)/param/$(arg model_type)/costmap_common_params.yaml" command="load" ns="local_costmap" />
+    <rosparam file="$(find robot_nav_node)/param/$(arg model_type)/local_costmap_params.yaml" command="load" />
+    <rosparam file="$(find robot_nav_node)/param/$(arg model_type)/global_costmap_params.yaml" command="load" />
+    <rosparam file="$(find robot_nav_node)/param/$(arg model_type)/move_base_params.yaml" command="load" />
+    <rosparam file="$(find robot_nav_node)/param/$(arg model_type)/global_planner_params.yaml" command="load" />
+
+    <!-- <rosparam file="$(find testbot)/param/dwa_local_planner_params.yaml" command="load" /> -->
+    <rosparam file="$(find robot_nav_node)/param/$(arg model_type)/teb_local_planner_params.yaml" command="load" />
+    <!-- <rosparam file="$(find robot_nav_node)/param/$(arg model_type)/TEB_param/1201_1_inEmpty.yaml" command="load" /> -->
+    <remap from="cmd_vel" to="$(arg cmd_vel_topic)"/> 
+    <remap from="odom" to="$(arg odom_topic)"/>
+
+  </node>
+</launch>

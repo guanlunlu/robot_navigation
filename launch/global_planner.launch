@@ -1,0 +1,5 @@
+<launch>
+  <!-- global planner -->
+  <node pkg="global_planner" type="global_planner" respawn="false" name="global_planner" output="screen">
+    <!-- <param name="base_global_planner" value="global_planner/GlobalPlanner"/> -->
+</launch>
