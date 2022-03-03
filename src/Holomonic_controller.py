@@ -40,9 +40,9 @@ class pose():
 class pathTracker():
     def __init__(self):
         # when using ekf localization
-        # self.pose_sub = rospy.Subscriber("/global_filter", Odometry, self.poseCallback)
+        self.pose_sub = rospy.Subscriber("/ekf_pose", PoseWithCovarianceStamped, self.poseCallback)
         # when using stage simulation localization
-        self.pose_sub = rospy.Subscriber("/base_pose_ground_truth", Odometry, self.poseCallback)
+        # self.pose_sub = rospy.Subscriber("/base_pose_ground_truth", Odometry, self.poseCallback)
         self.vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.goal_sub = rospy.Subscriber("/nav_goal", PoseStamped, self.goalCallback)
         self.rviz_localgoal = rospy.Publisher('/local_goal', PoseWithCovarianceStamped, queue_size=10)
