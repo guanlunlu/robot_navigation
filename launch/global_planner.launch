@@ -1,5 +1,12 @@
 <launch>
-  <!-- global planner -->
-  <node pkg="global_planner" type="global_planner" respawn="false" name="global_planner" output="screen">
-    <!-- <param name="base_global_planner" value="global_planner/GlobalPlanner"/> -->
+  <!-- Arguments -->
+  <arg name="cmd_vel_topic" default="/cmd_vel" />
+  <arg name="odom_topic" default="base_pose_ground_truth" />
+  <arg name="move_forward_only" default="false"/>
+  <arg name="model_type" default="Omni" />
+
+  <!-- move_base -->
+  <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
+    <param name="base_global_planner" value="global_planner/GlobalPlanner"/>
+  </node>
 </launch>
