@@ -1,0 +1,28 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${workspaceFolder}/.vscode/browse.vc.db",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/guanlunlu/eurobot_ws/devel/include/**",
+        "/home/guanlunlu/euro_ws/devel/include/**",
+        "/opt/ros/noetic/include/**",
+        "/home/guanlunlu/eurobot_ws/src/astar_navigation/include/**",
+        "/home/guanlunlu/eurobot_ws/src/ekf_localization/include/**",
+        "/home/guanlunlu/eurobot_ws/src/eurobot_localization/include/**",
+        "/home/guanlunlu/eurobot_ws/src/lidar_localization/include/**",
+        "/home/guanlunlu/eurobot_ws/src/obstacle_detector/include/**",
+        "/home/guanlunlu/eurobot_ws/src/robot_navigation/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}

@@ -11,6 +11,8 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
+  geometry_msgs
+  nav_msgs
 )
 
 ## System dependencies are found with CMake's conventions
@@ -116,8 +118,10 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-# include
+  include
   ${catkin_INCLUDE_DIRS}
+  /usr/include/eigen3
+  # ${Eigen_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
@@ -204,3 +208,7 @@ include_directories(
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
+
+add_executable(holonomic_controller src/holonomic_controller.cpp)
+add_dependencies(holonomic_controller ${catkin_EXPORTED_TARGETS})
+target_link_libraries(holonomic_controller ${catkin_LIBRARIES})
