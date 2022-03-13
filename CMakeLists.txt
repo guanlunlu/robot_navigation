@@ -209,6 +209,6 @@ include_directories(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-add_executable(holonomic_controller src/holonomic_controller.cpp)
-add_dependencies(holonomic_controller ${catkin_EXPORTED_TARGETS})
-target_link_libraries(holonomic_controller ${catkin_LIBRARIES})
+add_executable(pathTracker src/pathTracker.cpp)
+add_dependencies(pathTracker ${catkin_EXPORTED_TARGETS})
+target_link_libraries(pathTracker ${catkin_LIBRARIES})

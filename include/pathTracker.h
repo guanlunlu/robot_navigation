@@ -9,8 +9,15 @@
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/Twist.h>
+#include <geometry_msgs/PoseArray.h>
+#include <geometry_msgs/Pose.h>
 #include <nav_msgs/Path.h>
 #include <nav_msgs/GetPlan.h>
+
+enum class Mode{
+    IDLE,
+    TRACKING
+};
 
 class RobotState{
     public:
@@ -20,12 +27,14 @@ class RobotState{
         double y_;
         double theta_;
         Eigen::Vector3d getVector();
+        double distanceTo(RobotState);
 };
 
-class PurePursuit{
+class pathTracker{
     public:
-        PurePursuit(ros::NodeHandle& nh): nh_(nh){}
+        pathTracker(ros::NodeHandle& nh);
         void initialize();
+
     private:
         ros::NodeHandle nh_;
         // subscriber
@@ -35,16 +44,22 @@ class PurePursuit{
         void goalCallback(const geometry_msgs::PoseStamped::ConstPtr& pose_msg);
         // Publisher
         ros::Publisher velPub_;
+        ros::Publisher localgoalPub_;
+        ros::Publisher posearrayPub_;
         // Client
         void plannerClient(RobotState, RobotState);
 
-        RobotState cur_pose_;
         RobotState goal_pose_;
+        RobotState cur_pose_;
         RobotState local_goal_pose_;
+        bool if_localgoal_final_reached;
         // Goal rquest from Main and Path received from global planner
         std::vector<RobotState> global_path_;
 
-
+        // timer setup
+        ros::Timer timer_;
+        void timerCallback(const ros::TimerEvent& e);
+        
         // controller parameter
         double control_frequency_;
         double lookahead_d_;
@@ -61,4 +76,11 @@ class PurePursuit{
         double angular_brake_distance_;
         double theta_tolerance_;
 
+        bool if_globalpath_received;
+        double angleLimitChecking(double theta);
+        RobotState rollingWindow(RobotState cur_pos, std::vector<RobotState> global_path, double R);
+        // Path post process
+        std::vector<RobotState> orientationFilter(std::vector<RobotState>);
+        RobotState diffController(RobotState local_goal, RobotState cur_pos);
+        RobotState omniController(RobotState local_goal, RobotState cur_pos);
 };
