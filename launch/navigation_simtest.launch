@@ -1,0 +1,28 @@
+<launch>
+    <param name="use_sim_time" value="true"/>
+    <!-- stage -->
+    <node pkg="stage_ros" type="stageros" name="stageros" args="$(find stage_simulation)/stage/eurobot_beacon.world" output="screen">
+        <remap from="base_scan" to="scan"/>
+    </node>
+
+    <!-- map -->
+    <node name="map_odom" pkg="tf2_ros" type="static_transform_publisher" args="0 0 0 0 0 0 1 map odom"/>
+    <arg name="map_file" default="$(find stage_simulation)/maps/eurobot_map/empty_map.yaml"/>
+    
+    <!-- Run the map server -->
+    <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_file)" />
+
+    <!-- localization -->
+    <include file="$(find eurobot_localization)/launch/ekf_uwb.launch"/>
+
+    <!-- rviz -->
+	<!-- <node name="rviz" pkg="rviz" type="rviz" args="$(find robot_navigation)/rviz/stage.rviz"/> -->
+
+    <!-- move_base -->
+    <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
+        <param name="base_global_planner" value="global_planner/GlobalPlanner"/>
+        <param name="orientation_mode" value="3"/>
+        <param name="orientation_window_size" value="0.01"/>
+    </node>
+
+</launch>
