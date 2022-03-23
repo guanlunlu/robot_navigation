@@ -82,12 +82,15 @@ class pathTracker
 
     // Goal rquest from Main and Path received from global planner
     std::vector<RobotState> global_path_;
+    std::vector<RobotState> global_path_past_;
 
     // timer setup
     ros::Timer timer_;
     void timerCallback(const ros::TimerEvent& e);
     Mode workingMode_;
     Mode workingMode_past_;
+    void switchMode(Mode next_mode);
+    bool if_globalpath_switched;
 
     // controller parameter
     RobotType robot_type_;
@@ -99,12 +102,16 @@ class pathTracker
     double linear_acceleration_;
     double linear_brake_distance_;
     double xy_tolerance_;
+    double linear_transition_vel_;
+    double linear_transition_acc_;
 
     double angular_kp_;
     double angular_max_vel_;
     double angular_acceleration_;
     double angular_brake_distance_;
     double theta_tolerance_;
+    double angular_transition_vel_;
+    double angular_transition_acc_;
 
     double angleLimitChecking(double theta);
     double velocityProfile(Velocity, RobotState cur_pos, RobotState goal_pos, RobotState velocity_state,
