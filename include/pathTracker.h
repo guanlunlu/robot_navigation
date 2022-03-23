@@ -1,6 +1,7 @@
 #include <Eigen/Dense>
 #include <math.h>
 #include <ros/ros.h>
+#include <ros/console.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Transform.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -18,7 +19,7 @@ enum class Mode
 {
     IDLE,
     TRACKING,
-    SLOW_DOWN,
+    TRANSITION,
     GLOBALPATH_RECEIVED
 };
 

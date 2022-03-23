@@ -42,7 +42,7 @@ void pathTracker::timerCallback(const ros::TimerEvent& e)
             {
                 // Slow down first then start tracking new path
                 workingMode_past_ = workingMode_;
-                workingMode_ = Mode::SLOW_DOWN;
+                workingMode_ = Mode::TRANSITION;
                 break;
             }
         }
@@ -51,6 +51,8 @@ void pathTracker::timerCallback(const ros::TimerEvent& e)
         case Mode::TRACKING: {
             if (xy_goal_reached(cur_pose_, goal_pose_) && theta_goal_reached(cur_pose_, goal_pose_))
             {
+                ROS_INFO("Working Mode : GOAL REACHED !");
+
                 workingMode_past_ = workingMode_;
                 workingMode_ = Mode::IDLE;
 
@@ -60,6 +62,8 @@ void pathTracker::timerCallback(const ros::TimerEvent& e)
                 velocityPublish();
                 break;
             }
+
+            ROS_INFO("Working Mode : TRACKING");
 
             if (robot_type_ == RobotType::OmniDrive)
             {
@@ -77,6 +81,7 @@ void pathTracker::timerCallback(const ros::TimerEvent& e)
         break;
 
         case Mode::IDLE: {
+            ROS_INFO("Working Mode : IDLE");
             velocity_state_.x_ = 0;
             velocity_state_.y_ = 0;
             velocity_state_.theta_ = 0;
@@ -84,7 +89,8 @@ void pathTracker::timerCallback(const ros::TimerEvent& e)
         }
         break;
 
-        case Mode::SLOW_DOWN: {
+        case Mode::TRANSITION: {
+            ROS_INFO("Working Mode : TRANSITION");
         }
         break;
     }
@@ -182,6 +188,8 @@ void pathTracker::plannerClient(RobotState cur_pos, RobotState goal_pos)
             global_path_.push_back(pose);
         }
         global_path_ = orientationFilter(global_path_);
+
+        workingMode_past_ = workingMode_;
         workingMode_ = Mode::GLOBALPATH_RECEIVED;
 
         ROS_INFO("Path received from global planner !");
@@ -229,6 +237,7 @@ void pathTracker::goalCallback(const geometry_msgs::PoseStamped::ConstPtr& pose_
     goal_pose_.theta_ = yaw;
     ROS_INFO("Goal received ! (%f, %f, %f)", goal_pose_.x_, goal_pose_.y_, goal_pose_.theta_);
     plannerClient(cur_pose_, goal_pose_);
+    if_localgoal_final_reached = false;
 }
 
 RobotState pathTracker::rollingWindow(RobotState cur_pos, std::vector<RobotState> path, double L_d)
@@ -236,21 +245,20 @@ RobotState pathTracker::rollingWindow(RobotState cur_pos, std::vector<RobotState
     int k = 1;
     int last_k = 0;
     int d_k = 0;
-
     RobotState a;
     int a_idx = 0;
-
     RobotState b;
     int b_idx = 0;
-
     RobotState local_goal;
     bool if_b_asigned = false;
     double r = L_d;
 
     for (int i = 0; i < path.size(); i++)
     {
+        if (i == 1)
+            last_k = 0;
         last_k = k;
-        if (cur_pos.distanceTo(path.at(i)) > r)
+        if (cur_pos.distanceTo(path.at(i)) >= r)
             k = 1;
         else
             k = 0;
@@ -269,7 +277,7 @@ RobotState pathTracker::rollingWindow(RobotState cur_pos, std::vector<RobotState
 
     if (!if_b_asigned)
     {
-        double min = 1000000000;
+        double min = 1000000;
         for (int i = 0; i < path.size(); i++)
         {
             if (cur_pos.distanceTo(path.at(i)) < min)
@@ -288,9 +296,6 @@ RobotState pathTracker::rollingWindow(RobotState cur_pos, std::vector<RobotState
     }
     else
     {
-        cout << " aaaaaaa " << endl;
-        cout << "a_idx" << a_idx << endl;
-        cout << "b_idx" << b_idx << endl;
         a = path.at(a_idx);
         double d_ca = cur_pos.distanceTo(a);
         double d_cb = cur_pos.distanceTo(b);
@@ -301,19 +306,15 @@ RobotState pathTracker::rollingWindow(RobotState cur_pos, std::vector<RobotState
 
     if (if_localgoal_final_reached)
     {
-        cout << " bbbbbbbbb " << endl;
+        // cout << "local goal set to path.back()" << endl;
         local_goal = path.back();
     }
 
-    if (cur_pos.distanceTo(path.back()) < lookahead_d_ - 0.2)
-    {
-        cout << " ccccccccc " << endl;
+    if (cur_pos.distanceTo(path.back()) < r + 0.01)
         local_goal = path.back();
-    }
 
-    if (local_goal.distanceTo(path.back()) < lookahead_d_ - 0.2)
+    if (local_goal.distanceTo(path.back()) < 0.005)
     {
-        cout << " ddddddddd " << endl;
         local_goal = path.back();
         if_localgoal_final_reached = true;
     }
@@ -365,7 +366,7 @@ std::vector<RobotState> pathTracker::orientationFilter(std::vector<RobotState> o
         {
             double theta;
             theta = angleLimitChecking(path.at(i - 1).theta_ + d_theta);
-            cout << "theta = " << theta << endl;
+            // cout << "theta = " << theta << endl;
             RobotState point(origin_path.at(i).x_, origin_path.at(i).y_, theta);
             path.push_back(point);
         }

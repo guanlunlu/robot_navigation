@@ -13,7 +13,7 @@
     <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_file)" />
 
     <!-- localization -->
-    <include file="$(find eurobot_localization)/launch/ekf_uwb.launch"/>
+    <include file="$(find eurobot_localization)/launch/ekf_uwb.launch" />
 
     <!-- rviz -->
 	<!-- <node name="rviz" pkg="rviz" type="rviz" args="$(find robot_navigation)/rviz/stage.rviz"/> -->
