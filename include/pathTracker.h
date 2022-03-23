@@ -7,6 +7,7 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/transform_broadcaster.h>
 // message
+#include <std_srvs/Empty.h>
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/PoseArray.h>
 #include <geometry_msgs/PoseStamped.h>
@@ -52,16 +53,22 @@ class RobotState
 class pathTracker
 {
   public:
-    pathTracker(ros::NodeHandle& nh);
+    pathTracker(ros::NodeHandle& nh, ros::NodeHandle& nh_local);
+    ~pathTracker();
+    bool initializeParams(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res);
     void initialize();
 
   private:
     ros::NodeHandle nh_;
+    ros::NodeHandle nh_local_;
+    ros::ServiceServer params_srv_;
+
     // subscriber
     ros::Subscriber poseSub_;
     ros::Subscriber goalSub_;
     void poseCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pose_msg);
     void goalCallback(const geometry_msgs::PoseStamped::ConstPtr& pose_msg);
+
     // Publisher
     ros::Publisher velPub_;
     void velocityPublish();
@@ -94,6 +101,7 @@ class pathTracker
 
     // controller parameter
     RobotType robot_type_;
+    bool p_active_;
     double control_frequency_;
     double lookahead_d_;
 

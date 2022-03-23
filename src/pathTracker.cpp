@@ -22,10 +22,38 @@ Eigen::Vector3d RobotState::getVector()
     return vec;
 }
 
-pathTracker::pathTracker(ros::NodeHandle& nh)
+pathTracker::pathTracker(ros::NodeHandle& nh, ros::NodeHandle& nh_local)
 {
     nh_ = nh;
+    nh_local_ = nh_local;
+    std_srvs::Empty empt;
+
+    params_srv_ = nh_local_.advertiseService("params", &pathTracker::initializeParams, this);
+    p_active_ = false;
+    control_frequency_ = 100;
     initialize();
+    initializeParams(empt.request, empt.response);
+}
+
+pathTracker::~pathTracker()
+{
+    nh_local_.deleteParam("active");
+    nh_local_.deleteParam("control_frequency");
+    nh_local_.deleteParam("lookahead_distance");
+    nh_local_.deleteParam("linear_kp");
+    nh_local_.deleteParam("linear_max_velocity");
+    nh_local_.deleteParam("linear_acceleration");
+    nh_local_.deleteParam("linear_brake_distance");
+    nh_local_.deleteParam("xy_tolerance");
+    nh_local_.deleteParam("linear_transition_vel_");
+    nh_local_.deleteParam("linear_transition_acc_");
+    nh_local_.deleteParam("angular_kp");
+    nh_local_.deleteParam("angular_max_velocity");
+    nh_local_.deleteParam("angular_acceleration");
+    nh_local_.deleteParam("angular_brake_distance");
+    nh_local_.deleteParam("theta_tolerance");
+    nh_local_.deleteParam("angular_transition_vel_");
+    nh_local_.deleteParam("angular_transition_acc_");
 }
 
 void pathTracker::timerCallback(const ros::TimerEvent& e)
@@ -134,34 +162,8 @@ void pathTracker::switchMode(Mode next_mode)
 
 void pathTracker::initialize()
 {
-    // load parameter
-    robot_type_ = RobotType::OmniDrive;
-    nh_.param<double>("/pathTracker/control_frequency", control_frequency_, 200);
-    nh_.param<double>("/pathTracker/lookahead_distance", lookahead_d_, 0.2);
-
-    nh_.param<double>("/pathTracker/linear_kp", linear_kp_, 0.8);
-    nh_.param<double>("/pathTracker/linear_max_velocity", linear_max_vel_, 0.5);
-    nh_.param<double>("/pathTracker/linear_acceleration", linear_acceleration_, 0.3);
-    nh_.param<double>("/pathTracker/linear_brake_distance", linear_brake_distance_, 0.3);
-    nh_.param<double>("/pathTracker/xy_tolerance", xy_tolerance_, 0.02);
-    nh_.param<double>("/pathTracker/linear_transition_vel_", linear_transition_vel_, 0.15);
-    nh_.param<double>("/pathTracker/linear_transition_acc_", linear_transition_acc_, 0.6);
-
-    nh_.param<double>("/pathTracker/angular_kp", angular_kp_, 0.9);
-    nh_.param<double>("/pathTracker/angular_max_velocity", angular_max_vel_, 1);
-    nh_.param<double>("/pathTracker/angular_acceleration", angular_acceleration_, 0.5);
-    nh_.param<double>("/pathTracker/angular_brake_distance", angular_brake_distance_, 0.35);
-    nh_.param<double>("/pathTracker/theta_tolerance", theta_tolerance_, 0.03);
-    nh_.param<double>("/pathTracker/angular_transition_vel_", angular_transition_vel_, 0.15);
-    nh_.param<double>("/pathTracker/angular_transition_acc_", angular_transition_acc_, 0.6);
-
-    poseSub_ = nh_.subscribe("/ekf_pose", 50, &pathTracker::poseCallback, this);
-    goalSub_ = nh_.subscribe("/nav_goal", 50, &pathTracker::goalCallback, this);
-    velPub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
-    localgoalPub_ = nh_.advertise<geometry_msgs::PoseStamped>("/local_goal", 10);
-    posearrayPub_ = nh_.advertise<geometry_msgs::PoseArray>("/orientation", 10);
-
     if_localgoal_final_reached = false;
+    if_globalpath_switched = false;
 
     timer_ = nh_.createTimer(ros::Duration(1.0 / control_frequency_), &pathTracker::timerCallback, this, false, false);
     timer_.setPeriod(ros::Duration(1 / control_frequency_), false);
@@ -170,6 +172,80 @@ void pathTracker::initialize()
     workingMode_past_ = Mode::IDLE;
 
     ROS_INFO("Initialized !");
+}
+
+bool pathTracker::initializeParams(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res)
+{
+    // load parameter
+    bool get_param_ok = true;
+    bool prev_active = p_active_;
+    string model_type;
+
+    get_param_ok = nh_local_.param<string>("robot_type", model_type, "omni");
+    get_param_ok = nh_local_.param<bool>("active", p_active_, true);
+
+    get_param_ok = nh_local_.param<double>("control_frequency", control_frequency_, 200);
+    get_param_ok = nh_local_.param<double>("lookahead_distance", lookahead_d_, 0.2);
+
+    get_param_ok = nh_local_.param<double>("linear_kp", linear_kp_, 0.8);
+    get_param_ok = nh_local_.param<double>("linear_max_velocity", linear_max_vel_, 0.5);
+    get_param_ok = nh_local_.param<double>("linear_acceleration", linear_acceleration_, 0.3);
+    get_param_ok = nh_local_.param<double>("linear_brake_distance", linear_brake_distance_, 0.3);
+    get_param_ok = nh_local_.param<double>("xy_tolerance", xy_tolerance_, 0.02);
+    get_param_ok = nh_local_.param<double>("linear_transition_velocity", linear_transition_vel_, 0.15);
+    get_param_ok = nh_local_.param<double>("linear_transition_acceleration", linear_transition_acc_, 0.6);
+
+    get_param_ok = nh_local_.param<double>("angular_kp", angular_kp_, 0.9);
+    get_param_ok = nh_local_.param<double>("angular_max_velocity", angular_max_vel_, 1);
+    get_param_ok = nh_local_.param<double>("angular_acceleration", angular_acceleration_, 0.5);
+    get_param_ok = nh_local_.param<double>("angular_brake_distance", angular_brake_distance_, 0.35);
+    get_param_ok = nh_local_.param<double>("theta_tolerance", theta_tolerance_, 0.03);
+    get_param_ok = nh_local_.param<double>("angular_transition_velocity", angular_transition_vel_, 0.15);
+    get_param_ok = nh_local_.param<double>("angular_transition_acceleration", angular_transition_acc_, 0.6);
+
+    cout << "p_active_ = " << p_active_ << endl;
+    cout << "prev_active_ = " << prev_active << endl;
+    if (p_active_ != prev_active)
+    {
+        if (p_active_)
+        {
+            poseSub_ = nh_.subscribe("/ekf_pose", 50, &pathTracker::poseCallback, this);
+            goalSub_ = nh_.subscribe("/nav_goal", 50, &pathTracker::goalCallback, this);
+            velPub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
+            localgoalPub_ = nh_.advertise<geometry_msgs::PoseStamped>("/local_goal", 10);
+            posearrayPub_ = nh_.advertise<geometry_msgs::PoseArray>("/orientation", 10);
+        }
+        else
+        {
+            poseSub_.shutdown();
+            goalSub_.shutdown();
+            velPub_.shutdown();
+            localgoalPub_.shutdown();
+            posearrayPub_.shutdown();
+        }
+    }
+
+    if (get_param_ok)
+    {
+        ROS_INFO_STREAM("[Path Tracker]: "
+                        << "set param ok");
+    }
+    else
+    {
+        ROS_WARN_STREAM("[Path Tracker]: "
+                        << "set param failed");
+    }
+
+    if (model_type == "omni")
+    {
+        robot_type_ = RobotType::OmniDrive;
+    }
+    else if (model_type == "diff")
+    {
+        robot_type_ = RobotType::DiffDrive;
+    }
+
+    return true;
 }
 
 void pathTracker::plannerClient(RobotState cur_pos, RobotState goal_pos)
@@ -212,7 +288,6 @@ void pathTracker::plannerClient(RobotState cur_pos, RobotState goal_pos)
         ROS_INFO("Path received from global planner !");
         nav_msgs::Path path_msg;
         path_msg.poses = srv.response.plan.poses;
-        global_path_past_ = global_path_;
         global_path_.clear();
 
         for (const auto& point : path_msg.poses)
@@ -274,14 +349,13 @@ void pathTracker::goalCallback(const geometry_msgs::PoseStamped::ConstPtr& pose_
     goal_pose_.theta_ = yaw;
     ROS_INFO("Goal received ! (%f, %f, %f)", goal_pose_.x_, goal_pose_.y_, goal_pose_.theta_);
 
+    global_path_past_ = global_path_;
     if (workingMode_ == Mode::IDLE)
-    {
         plannerClient(cur_pose_, goal_pose_);
-        switchMode(Mode::GLOBALPATH_RECEIVED);
-    }
 
     if_localgoal_final_reached = false;
     if_globalpath_switched = false;
+    switchMode(Mode::GLOBALPATH_RECEIVED);
 }
 
 RobotState pathTracker::rollingWindow(RobotState cur_pos, std::vector<RobotState> path, double L_d)
@@ -622,7 +696,8 @@ int main(int argc, char** argv)
 {
     ros::init(argc, argv, "pathTracker");
     ros::NodeHandle nh;
-    pathTracker pathTracker_inst(nh);
+    ros::NodeHandle nh_local;
+    pathTracker pathTracker_inst(nh, nh_local);
 
     while (ros::ok())
     {

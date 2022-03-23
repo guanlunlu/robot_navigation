@@ -1,0 +1,21 @@
+active: true
+
+robot_type: omni
+control_frequency: 100
+lookahead_distance: 0.2
+
+linear_kp: 0.8
+linear_max_velocity: 0.5
+linear_acceleration: 0.3
+linear_brake_distance: 0.3
+linear_transition_velocity: 0.15
+linear_transition_acceleration: 0.6
+xy_tolerance: 0.02
+
+angular_kp: 0.9
+angular_max_velocity: 1
+angular_acceleration: 0.5
+angular_brake_distance: 0.35
+angular_transition_velocity: 0.15
+angular_transition_acceleration: 0.6
+theta_tolerance: 0.03
