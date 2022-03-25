@@ -1,0 +1,5 @@
+ <launch>
+    <node name="path_tracker" pkg="robot_navigation" type="pathTracker" output="screen">
+        <rosparam file="$(find robot_navigation)/params/pathTracker.yaml" command="load" />
+    </node>
+</launch>

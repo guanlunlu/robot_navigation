@@ -30,7 +30,7 @@ pathTracker::pathTracker(ros::NodeHandle& nh, ros::NodeHandle& nh_local)
 
     params_srv_ = nh_local_.advertiseService("params", &pathTracker::initializeParams, this);
     p_active_ = false;
-    control_frequency_ = 100;
+    control_frequency_ = 50;
     initialize();
     initializeParams(empt.request, empt.response);
 }
@@ -47,6 +47,9 @@ pathTracker::~pathTracker()
     nh_local_.deleteParam("xy_tolerance");
     nh_local_.deleteParam("linear_transition_vel_");
     nh_local_.deleteParam("linear_transition_acc_");
+    nh_local_.deleteParam("linear_acceleration_profile");
+    nh_local_.deleteParam("linear_deceleration_profile");
+
     nh_local_.deleteParam("angular_kp");
     nh_local_.deleteParam("angular_max_velocity");
     nh_local_.deleteParam("angular_acceleration");
@@ -54,119 +57,16 @@ pathTracker::~pathTracker()
     nh_local_.deleteParam("theta_tolerance");
     nh_local_.deleteParam("angular_transition_vel_");
     nh_local_.deleteParam("angular_transition_acc_");
+    nh_local_.deleteParam("angular_acceleration_profile");
+    nh_local_.deleteParam("angular_deceleration_profile");
 }
-
-void pathTracker::timerCallback(const ros::TimerEvent& e)
-{
-    switch (workingMode_)
-    {
-        case Mode::GLOBALPATH_RECEIVED: {
-            if (workingMode_past_ == Mode::IDLE)
-            {
-                switchMode(Mode::TRACKING);
-                break;
-            }
-            else if (workingMode_past_ == Mode::TRACKING)
-            {
-                // Slow down first then start tracking new path
-                switchMode(Mode::TRANSITION);
-                break;
-            }
-            else if (workingMode_past_ == Mode::TRANSITION)
-            {
-                switchMode(Mode::TRACKING);
-                break;
-            }
-        }
-        break;
-
-        case Mode::TRACKING: {
-            if (xy_goal_reached(cur_pose_, goal_pose_) && theta_goal_reached(cur_pose_, goal_pose_))
-            {
-                ROS_INFO("Working Mode : GOAL REACHED !");
-                switchMode(Mode::IDLE);
-                velocity_state_.x_ = 0;
-                velocity_state_.y_ = 0;
-                velocity_state_.theta_ = 0;
-                velocityPublish();
-                break;
-            }
-
-            if (workingMode_past_ == Mode::TRANSITION)
-            {
-                if (if_globalpath_switched == false)
-                {
-                    if_localgoal_final_reached = false;
-                    plannerClient(cur_pose_, goal_pose_);
-                    if_globalpath_switched = true;
-                }
-            }
-            ROS_INFO("Working Mode : TRACKING");
-            if (robot_type_ == RobotType::OmniDrive)
-            {
-                RobotState local_goal;
-                local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_);
-                omniController(local_goal, cur_pose_);
-            }
-            else if (robot_type_ == RobotType::DiffDrive)
-            {
-                RobotState local_goal;
-                local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_);
-                diffController(local_goal, cur_pose_);
-            }
-        }
-        break;
-
-        case Mode::IDLE: {
-            ROS_INFO("Working Mode : IDLE");
-            velocity_state_.x_ = 0;
-            velocity_state_.y_ = 0;
-            velocity_state_.theta_ = 0;
-            velocityPublish();
-        }
-        break;
-
-        case Mode::TRANSITION: {
-            ROS_INFO("Working Mode : TRANSITION");
-            double linear_vel = sqrt(pow(velocity_state_.x_, 2) + pow(velocity_state_.y_, 2));
-            double angular_vel = velocity_state_.theta_;
-
-            if (linear_vel <= linear_transition_vel_ && angular_vel <= angular_transition_vel_)
-            {
-                switchMode(Mode::TRACKING);
-                break;
-            }
-
-            if (robot_type_ == RobotType::OmniDrive)
-            {
-                RobotState local_goal;
-                local_goal = rollingWindow(cur_pose_, global_path_past_, lookahead_d_);
-                omniController(local_goal, cur_pose_);
-            }
-            else if (robot_type_ == RobotType::DiffDrive)
-            {
-                RobotState local_goal;
-                local_goal = rollingWindow(cur_pose_, global_path_past_, lookahead_d_);
-                diffController(local_goal, cur_pose_);
-            }
-        }
-        break;
-    }
-}
-
-void pathTracker::switchMode(Mode next_mode)
-{
-    workingMode_past_ = workingMode_;
-    workingMode_ = next_mode;
-}
-
 void pathTracker::initialize()
 {
     if_localgoal_final_reached = false;
     if_globalpath_switched = false;
 
     timer_ = nh_.createTimer(ros::Duration(1.0 / control_frequency_), &pathTracker::timerCallback, this, false, false);
-    timer_.setPeriod(ros::Duration(1 / control_frequency_), false);
+    timer_.setPeriod(ros::Duration(1.0 / control_frequency_), false);
     timer_.start();
     workingMode_ = Mode::IDLE;
     workingMode_past_ = Mode::IDLE;
@@ -184,24 +84,31 @@ bool pathTracker::initializeParams(std_srvs::Empty::Request& req, std_srvs::Empt
     get_param_ok = nh_local_.param<string>("robot_type", model_type, "omni");
     get_param_ok = nh_local_.param<bool>("active", p_active_, true);
 
-    get_param_ok = nh_local_.param<double>("control_frequency", control_frequency_, 200);
+    get_param_ok = nh_local_.param<double>("control_frequency", control_frequency_, 50);
     get_param_ok = nh_local_.param<double>("lookahead_distance", lookahead_d_, 0.2);
 
     get_param_ok = nh_local_.param<double>("linear_kp", linear_kp_, 0.8);
     get_param_ok = nh_local_.param<double>("linear_max_velocity", linear_max_vel_, 0.5);
     get_param_ok = nh_local_.param<double>("linear_acceleration", linear_acceleration_, 0.3);
-    get_param_ok = nh_local_.param<double>("linear_brake_distance", linear_brake_distance_, 0.3);
-    get_param_ok = nh_local_.param<double>("xy_tolerance", xy_tolerance_, 0.02);
+    // get_param_ok = nh_local_.param<double>("linear_brake_distance", linear_brake_distance_, 1);
     get_param_ok = nh_local_.param<double>("linear_transition_velocity", linear_transition_vel_, 0.15);
     get_param_ok = nh_local_.param<double>("linear_transition_acceleration", linear_transition_acc_, 0.6);
+    get_param_ok = nh_local_.param<string>("linear_acceleration_profile", linear_acceleration_profile_, "linear");
+    get_param_ok = nh_local_.param<string>("linear_deceleration_profile", linear_deceleration_profile_, "linear");
+    get_param_ok = nh_local_.param<double>("linear_tracking_velocity", linear_tracking_vel_, 0.01);
+    get_param_ok = nh_local_.param<double>("linear_brake_distance_ratio", linear_brake_distance_ratio_, 0.3);
 
-    get_param_ok = nh_local_.param<double>("angular_kp", angular_kp_, 0.9);
-    get_param_ok = nh_local_.param<double>("angular_max_velocity", angular_max_vel_, 1);
+    get_param_ok = nh_local_.param<double>("angular_kp", angular_kp_, 1.5);
+    get_param_ok = nh_local_.param<double>("angular_max_velocity", angular_max_vel_, 3);
     get_param_ok = nh_local_.param<double>("angular_acceleration", angular_acceleration_, 0.5);
     get_param_ok = nh_local_.param<double>("angular_brake_distance", angular_brake_distance_, 0.35);
-    get_param_ok = nh_local_.param<double>("theta_tolerance", theta_tolerance_, 0.03);
     get_param_ok = nh_local_.param<double>("angular_transition_velocity", angular_transition_vel_, 0.15);
     get_param_ok = nh_local_.param<double>("angular_transition_acceleration", angular_transition_acc_, 0.6);
+    get_param_ok = nh_local_.param<string>("angular_acceleration_profile", angular_acceleration_profile_, "linear");
+    get_param_ok = nh_local_.param<string>("angular_deceleration_profile", angular_deceleration_profile_, "linear");
+
+    get_param_ok = nh_local_.param<double>("xy_tolerance", xy_tolerance_, 0.01);
+    get_param_ok = nh_local_.param<double>("theta_tolerance", theta_tolerance_, 0.03);
 
     cout << "p_active_ = " << p_active_ << endl;
     cout << "prev_active_ = " << prev_active << endl;
@@ -246,6 +153,111 @@ bool pathTracker::initializeParams(std_srvs::Empty::Request& req, std_srvs::Empt
     }
 
     return true;
+}
+
+void pathTracker::timerCallback(const ros::TimerEvent& e)
+{
+    switch (workingMode_)
+    {
+        case Mode::GLOBALPATH_RECEIVED: {
+            if (workingMode_past_ == Mode::IDLE)
+            {
+                switchMode(Mode::TRACKING);
+                break;
+            }
+            else if (workingMode_past_ == Mode::TRACKING)
+            {
+                // Slow down first then start tracking new path
+                switchMode(Mode::TRANSITION);
+                break;
+            }
+            else if (workingMode_past_ == Mode::TRANSITION)
+            {
+                switchMode(Mode::TRACKING);
+                break;
+            }
+        }
+        break;
+
+        case Mode::TRACKING: {
+            if (xy_goal_reached(cur_pose_, goal_pose_) && theta_goal_reached(cur_pose_, goal_pose_))
+            {
+                ROS_INFO("Working Mode : GOAL REACHED !");
+                switchMode(Mode::IDLE);
+                velocity_state_.x_ = 0;
+                velocity_state_.y_ = 0;
+                velocity_state_.theta_ = 0;
+                velocityPublish();
+                break;
+            }
+
+            if (workingMode_past_ == Mode::TRANSITION)
+            {
+                if (if_globalpath_switched == false)
+                {
+                    if_localgoal_final_reached = false;
+                    plannerClient(cur_pose_, goal_pose_);
+                    linear_brake_distance_ = linear_brake_distance_ratio_ * cur_pose_.distanceTo(goal_pose_);
+                    if_globalpath_switched = true;
+                }
+            }
+            // ROS_INFO("Working Mode : TRACKING");
+            if (robot_type_ == RobotType::OmniDrive)
+            {
+                RobotState local_goal;
+                local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_);
+                omniController(local_goal, cur_pose_);
+            }
+            else if (robot_type_ == RobotType::DiffDrive)
+            {
+                RobotState local_goal;
+                local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_);
+                diffController(local_goal, cur_pose_);
+            }
+        }
+        break;
+
+        case Mode::IDLE: {
+            // ROS_INFO("Working Mode : IDLE");
+            velocity_state_.x_ = 0;
+            velocity_state_.y_ = 0;
+            velocity_state_.theta_ = 0;
+            velocityPublish();
+        }
+        break;
+
+        case Mode::TRANSITION: {
+            // ROS_INFO("Working Mode : TRANSITION");
+            double linear_vel = sqrt(pow(velocity_state_.x_, 2) + pow(velocity_state_.y_, 2));
+            double angular_vel = velocity_state_.theta_;
+
+            if (linear_vel <= linear_transition_vel_ && angular_vel <= angular_transition_vel_)
+            {
+                switchMode(Mode::TRACKING);
+                break;
+            }
+
+            if (robot_type_ == RobotType::OmniDrive)
+            {
+                RobotState local_goal;
+                local_goal = rollingWindow(cur_pose_, global_path_past_, lookahead_d_);
+                omniController(local_goal, cur_pose_);
+            }
+            else if (robot_type_ == RobotType::DiffDrive)
+            {
+                RobotState local_goal;
+                local_goal = rollingWindow(cur_pose_, global_path_past_, lookahead_d_);
+                diffController(local_goal, cur_pose_);
+            }
+        }
+        break;
+    }
+}
+
+void pathTracker::switchMode(Mode next_mode)
+{
+    workingMode_past_ = workingMode_;
+    workingMode_ = next_mode;
 }
 
 void pathTracker::plannerClient(RobotState cur_pos, RobotState goal_pos)
@@ -351,7 +363,10 @@ void pathTracker::goalCallback(const geometry_msgs::PoseStamped::ConstPtr& pose_
 
     global_path_past_ = global_path_;
     if (workingMode_ == Mode::IDLE)
+    {
         plannerClient(cur_pose_, goal_pose_);
+        linear_brake_distance_ = linear_brake_distance_ratio_ * cur_pose_.distanceTo(goal_pose_);
+    }
 
     if_localgoal_final_reached = false;
     if_globalpath_switched = false;
@@ -556,6 +571,7 @@ void pathTracker::omniController(RobotState local_goal, RobotState cur_pos)
     {
         velocity_state_.x_ = 0;
         velocity_state_.y_ = 0;
+        // ROS_INFO("aaaaaaa");
     }
     else
     {
@@ -579,25 +595,56 @@ void pathTracker::omniController(RobotState local_goal, RobotState cur_pos)
     velocityPublish();
 }
 
-double pathTracker::velocityProfile(Velocity vel_type, RobotState cur_pos, RobotState goal_pos,
-                                    RobotState vel_state_past, double acceleration)
+double pathTracker::velocityProfile(Velocity vel_type, RobotState cur_pos, RobotState goal_pos, RobotState vel_state_,
+                                    double acceleration)
 {
     double output_vel = 0;
     if (workingMode_ == Mode::TRACKING)
     {
         if (vel_type == Velocity::linear)
         {
-            double d_vel = acceleration / control_frequency_;
             RobotState _(0, 0, 0);
-            double last_vel = vel_state_past.distanceTo(_);
-            output_vel = last_vel + d_vel;
+            double last_vel = vel_state_.distanceTo(_);
+            // acceleration
+            if (linear_acceleration_profile_ == "linear")
+            {
+                double d_vel = acceleration / control_frequency_;
+                output_vel = last_vel + d_vel;
+            }
+            else if (linear_acceleration_profile_ == "smooth_step")
+            {
+            }
 
-            if (cur_pos.distanceTo(goal_pos) < linear_brake_distance_)
-                output_vel = cur_pos.distanceTo(goal_pos) * linear_kp_;
+            // deceleration
+            if (cur_pose_.distanceTo(goal_pose_) < linear_brake_distance_)
+            {
+                if (linear_deceleration_profile_ == "linear")
+                {
+                    // double acc =
+                    //     (pow(last_vel, 2) - pow(linear_tracking_vel_, 2)) / 2 / cur_pose_.distanceTo(goal_pose_);
+                    double acc = pow(linear_max_vel_, 2);
+                    double d_vel = acc / control_frequency_;
+                    // ROS_INFO("Freq = %f", control_frequency_);
+                    // ROS_INFO("S = %f", cur_pose_.distanceTo(goal_pose_));
+                    // ROS_INFO("acc = %f", acc);
+                    // ROS_INFO("d_vel = %f", d_vel);
+                    // ROS_INFO("t = %f", ros::Time::now().toSec());
+                    // output_vel = last_vel - d_vel;
+                    output_vel = sqrt(2 * acc * cur_pose_.distanceTo(goal_pose_));
+                }
+                else if (linear_deceleration_profile_ == "p_control")
+                {
+                    output_vel = cur_pos.distanceTo(goal_pos) * linear_kp_;
+                }
+                else if (linear_deceleration_profile_ == "smooth_step")
+                {
+                }
+            }
 
             // Saturation
             if (output_vel > linear_max_vel_)
                 output_vel = linear_max_vel_;
+            ROS_INFO("linear vel %f", output_vel);
         }
 
         if (vel_type == Velocity::angular)
@@ -610,7 +657,6 @@ double pathTracker::velocityProfile(Velocity vel_type, RobotState cur_pos, Robot
             {
                 output_vel *= -1;
             }
-
             // Saturation
             if (output_vel > angular_max_vel_)
                 output_vel = angular_max_vel_;
@@ -618,13 +664,14 @@ double pathTracker::velocityProfile(Velocity vel_type, RobotState cur_pos, Robot
                 output_vel = -angular_max_vel_;
         }
     }
+
     else if (workingMode_ == Mode::TRANSITION)
     {
         if (vel_type == Velocity::linear)
         {
             double d_vel = linear_transition_acc_ / control_frequency_;
             RobotState _(0, 0, 0);
-            double last_vel = vel_state_past.distanceTo(_);
+            double last_vel = vel_state_.distanceTo(_);
             output_vel = last_vel - d_vel;
             if (output_vel < linear_transition_vel_)
                 output_vel = linear_transition_vel_;
@@ -635,13 +682,13 @@ double pathTracker::velocityProfile(Velocity vel_type, RobotState cur_pos, Robot
             double d_vel = angular_transition_acc_ / control_frequency_;
             if (output_vel > 0)
             {
-                output_vel = vel_state_past.theta_ - d_vel;
+                output_vel = vel_state_.theta_ - d_vel;
                 if (output_vel < angular_transition_vel_)
                     output_vel = angular_transition_vel_;
             }
             else
             {
-                output_vel = vel_state_past.theta_ + d_vel;
+                output_vel = vel_state_.theta_ + d_vel;
                 if (output_vel > angular_transition_vel_)
                     output_vel = angular_transition_vel_;
             }

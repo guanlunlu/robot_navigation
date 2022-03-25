@@ -109,17 +109,26 @@ class pathTracker
     double linear_max_vel_;
     double linear_acceleration_;
     double linear_brake_distance_;
-    double xy_tolerance_;
     double linear_transition_vel_;
     double linear_transition_acc_;
+    double linear_tracking_vel_;
+    double xy_tolerance_;
+    double linear_brake_distance_ratio_;
+    // velocity profile type : linear, smooth_step
+    std::string linear_acceleration_profile_;
+    std::string linear_deceleration_profile_;
 
     double angular_kp_;
     double angular_max_vel_;
     double angular_acceleration_;
     double angular_brake_distance_;
-    double theta_tolerance_;
     double angular_transition_vel_;
     double angular_transition_acc_;
+    double theta_tolerance_;
+    double theta_err;
+    // velocity profile type : p_control, linear, smooth_step
+    std::string angular_acceleration_profile_;
+    std::string angular_deceleration_profile_;
 
     double angleLimitChecking(double theta);
     double velocityProfile(Velocity, RobotState cur_pos, RobotState goal_pos, RobotState velocity_state,
