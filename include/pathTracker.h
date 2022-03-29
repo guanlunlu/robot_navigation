@@ -24,12 +24,6 @@ enum class Mode
     GLOBALPATH_RECEIVED
 };
 
-enum class RobotType
-{
-    DiffDrive,
-    OmniDrive
-};
-
 enum class Velocity
 {
     linear,
@@ -100,7 +94,7 @@ class pathTracker
     bool if_globalpath_switched;
 
     // controller parameter
-    RobotType robot_type_;
+    std::string robot_type_;
     bool p_active_;
     double control_frequency_;
     double lookahead_d_;
@@ -111,7 +105,7 @@ class pathTracker
     double linear_brake_distance_;
     double linear_transition_vel_;
     double linear_transition_acc_;
-    double linear_tracking_vel_;
+    // double linear_tracking_vel_;
     double xy_tolerance_;
     double linear_brake_distance_ratio_;
     // velocity profile type : linear, smooth_step
