@@ -8,6 +8,7 @@
 #include <tf2_ros/transform_broadcaster.h>
 // message
 #include <std_srvs/Empty.h>
+#include <std_msgs/Bool.h>
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/PoseArray.h>
 #include <geometry_msgs/PoseStamped.h>
@@ -15,6 +16,7 @@
 #include <geometry_msgs/Twist.h>
 #include <nav_msgs/GetPlan.h>
 #include <nav_msgs/Path.h>
+#include <costmap_converter/ObstacleArrayMsg.h>
 
 enum class Mode
 {
@@ -60,8 +62,10 @@ class pathTracker
     // subscriber
     ros::Subscriber poseSub_;
     ros::Subscriber goalSub_;
+    ros::Subscriber obsSub_;
     void poseCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pose_msg);
     void goalCallback(const geometry_msgs::PoseStamped::ConstPtr& pose_msg);
+    void obsCallback(const std_msgs::Bool::ConstPtr& obs_msg);
 
     // Publisher
     ros::Publisher velPub_;
@@ -70,11 +74,13 @@ class pathTracker
     ros::Publisher posearrayPub_;
     // Client
     void plannerClient(RobotState, RobotState);
+    void localPlannerClient(RobotState, RobotState);
 
     RobotState goal_pose_;
     RobotState cur_pose_;
     RobotState velocity_state_;
 
+    bool if_obstacle_approached;
     bool if_localgoal_final_reached;
     bool if_reached_target_range;
 
@@ -84,6 +90,7 @@ class pathTracker
     // Goal rquest from Main and Path received from global planner
     std::vector<RobotState> global_path_;
     std::vector<RobotState> global_path_past_;
+    std::vector<RobotState> local_path_;
 
     // timer setup
     ros::Timer timer_;
@@ -98,6 +105,7 @@ class pathTracker
     bool p_active_;
     double control_frequency_;
     double lookahead_d_;
+    double lookahead_d_local;
 
     double linear_kp_;
     double linear_max_vel_;

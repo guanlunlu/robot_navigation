@@ -1,5 +1,6 @@
 #include "pathTracker.h"
 #include <cmath>
+#include "std_msgs/Bool.h"
 
 using namespace std;
 
@@ -63,6 +64,7 @@ void pathTracker::initialize()
 {
     if_localgoal_final_reached = false;
     if_globalpath_switched = false;
+    if_obstacle_approached = false;
 
     timer_ = nh_.createTimer(ros::Duration(1.0 / control_frequency_), &pathTracker::timerCallback, this, false, false);
     timer_.setPeriod(ros::Duration(1.0 / control_frequency_), false);
@@ -83,6 +85,7 @@ bool pathTracker::initializeParams(std_srvs::Empty::Request& req, std_srvs::Empt
     get_param_ok = nh_local_.param<string>("robot_type", robot_type_, "omni");
     get_param_ok = nh_local_.param<double>("control_frequency", control_frequency_, 50);
     get_param_ok = nh_local_.param<double>("lookahead_distance", lookahead_d_, 0.2);
+    get_param_ok = nh_local_.param<double>("lookahead_distance_local", lookahead_d_local, 1.0);
 
     // linear parameter
     // acceleration
@@ -116,6 +119,7 @@ bool pathTracker::initializeParams(std_srvs::Empty::Request& req, std_srvs::Empt
         {
             poseSub_ = nh_.subscribe("/ekf_pose", 50, &pathTracker::poseCallback, this);
             goalSub_ = nh_.subscribe("/nav_goal", 50, &pathTracker::goalCallback, this);
+            obsSub_ = nh_.subscribe("/have_obstacles", 50, &pathTracker::obsCallback, this);
             velPub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
             localgoalPub_ = nh_.advertise<geometry_msgs::PoseStamped>("/local_goal", 10);
             posearrayPub_ = nh_.advertise<geometry_msgs::PoseArray>("/orientation", 10);
@@ -124,6 +128,7 @@ bool pathTracker::initializeParams(std_srvs::Empty::Request& req, std_srvs::Empt
         {
             poseSub_.shutdown();
             goalSub_.shutdown();
+            obsSub_.shutdown();
             velPub_.shutdown();
             localgoalPub_.shutdown();
             posearrayPub_.shutdown();
@@ -194,13 +199,27 @@ void pathTracker::timerCallback(const ros::TimerEvent& e)
             if (robot_type_ == "omni")
             {
                 RobotState local_goal;
-                local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_);
-                omniController(local_goal, cur_pose_);
+                RobotState far_local_goal;
+                std::vector<RobotState> tracking_path;
+                // cout << "if_obstacle_approached = " << if_obstacle_approached << endl;
+                if (if_obstacle_approached == true)
+                {
+                    far_local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_local);
+                    localPlannerClient(cur_pose_, far_local_goal);
+                    local_goal = rollingWindow(cur_pose_, local_path_, lookahead_d_);
+                    omniController(local_goal, cur_pose_);
+                    if_obstacle_approached = false;
+                }
+                else
+                {
+                    local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_);
+                    omniController(local_goal, cur_pose_);
+                }
             }
             else if (robot_type_ == "diff")
             {
                 RobotState local_goal;
-                local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_);
+                local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_local);
                 diffController(local_goal, cur_pose_);
             }
         }
@@ -320,6 +339,84 @@ void pathTracker::plannerClient(RobotState cur_pos, RobotState goal_pos)
         ROS_ERROR("Failed to call service make_plan");
         // return 1;
     }
+}
+
+void pathTracker::localPlannerClient(RobotState cur_pos, RobotState goal_pos)
+{
+    geometry_msgs::PoseStamped cur;
+    cur.header.frame_id = "map";
+    cur.pose.position.x = cur_pos.x_;
+    cur.pose.position.y = cur_pos.y_;
+    cur.pose.position.z = 0;
+
+    tf2::Quaternion q;
+    q.setRPY(0, 0, cur_pos.theta_);
+    cur.pose.orientation.x = q.x();
+    cur.pose.orientation.y = q.y();
+    cur.pose.orientation.z = q.z();
+    cur.pose.orientation.w = q.w();
+
+    geometry_msgs::PoseStamped goal;
+    goal.header.frame_id = "map";
+    goal.pose.position.x = goal_pos.x_;
+    goal.pose.position.y = goal_pos.y_;
+    goal.pose.position.z = 0;
+
+    // tf2::Quaternion q;
+    q.setRPY(0, 0, goal_pos.theta_);
+    goal.pose.orientation.x = q.x();
+    goal.pose.orientation.y = q.y();
+    goal.pose.orientation.z = q.z();
+    goal.pose.orientation.w = q.w();
+
+    ros::ServiceClient client = nh_.serviceClient<nav_msgs::GetPlan>("/apf_localplanner");
+    nav_msgs::GetPlan srv;
+    srv.request.start = cur;
+    srv.request.goal = goal;
+
+    std::vector<geometry_msgs::PoseStamped> path_msg;
+
+    if (client.call(srv))
+    {
+        ROS_INFO("Path received from global planner !");
+        nav_msgs::Path path_msg;
+        path_msg.poses = srv.response.plan.poses;
+        local_path_.clear();
+
+        for (const auto& point : path_msg.poses)
+        {
+            RobotState pose;
+            pose.x_ = point.pose.position.x;
+            pose.y_ = point.pose.position.y;
+            tf2::Quaternion q;
+            tf2::fromMsg(point.pose.orientation, q);
+            tf2::Matrix3x3 qt(q);
+            double _, yaw;
+            qt.getRPY(_, _, yaw);
+            pose.theta_ = yaw;
+            local_path_.push_back(pose);
+        }
+        local_path_ = orientationFilter(global_path_);
+        // ROS_INFO("Path received from local planner !");
+
+        // print global path
+        // ROS_INFO("--- global path ---");
+        // for (const auto& point : global_path_)
+        // {
+        //     ROS_INFO("(%f, %f, %f)", point.x_, point.y_, point.theta_);
+        // }
+        // ROS_INFO("--- ---");
+    }
+    else
+    {
+        ROS_ERROR("Failed to call service apf_localplanner");
+        // return 1;
+    }
+}
+
+void pathTracker::obsCallback(const std_msgs::Bool::ConstPtr& obs_msg)
+{
+    if_obstacle_approached = obs_msg->data;
 }
 
 void pathTracker::poseCallback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& pose_msg)

@@ -22,7 +22,7 @@ linear_deceleration_profile: linear
 angular_transition_velocity: 0.15
 angular_transition_acceleration: 0.6
 # deceleration
-angular_kp: 1.8
+angular_kp: 1.0
 #  angular_brake_distance: 0.35
 # angular_deceleration_profile: linear
 

@@ -7,7 +7,8 @@
 
     <!-- map -->
     <node name="map_odom" pkg="tf2_ros" type="static_transform_publisher" args="0 0 0 0 0 0 1 map odom"/>
-    <arg name="map_file" default="$(find stage_simulation)/maps/eurobot_map/empty_map.yaml"/>
+    <arg name="map_file" default="$(find apf_localplanner)/maps/eueu_rotate.yaml"/>
+
     
     <!-- Run the map server -->
     <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_file)" />
