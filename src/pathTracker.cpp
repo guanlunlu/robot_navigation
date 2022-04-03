@@ -1,6 +1,5 @@
 #include "pathTracker.h"
-#include <cmath>
-#include "std_msgs/Bool.h"
+#include "rollingWindow.h"
 
 using namespace std;
 
@@ -62,7 +61,8 @@ pathTracker::~pathTracker()
 
 void pathTracker::initialize()
 {
-    if_localgoal_final_reached = false;
+    if_globalpath_rw_finished = false;
+    if_localpath_rw_finished = false;
     if_globalpath_switched = false;
     if_obstacle_approached = false;
 
@@ -189,7 +189,7 @@ void pathTracker::timerCallback(const ros::TimerEvent& e)
             {
                 if (if_globalpath_switched == false)
                 {
-                    if_localgoal_final_reached = false;
+                    if_globalpath_rw_finished = false;
                     plannerClient(cur_pose_, goal_pose_);
                     linear_brake_distance_ = linear_brake_distance_ratio_ * cur_pose_.distanceTo(goal_pose_);
                     if_globalpath_switched = true;
@@ -204,22 +204,22 @@ void pathTracker::timerCallback(const ros::TimerEvent& e)
                 // cout << "if_obstacle_approached = " << if_obstacle_approached << endl;
                 if (if_obstacle_approached == true)
                 {
-                    far_local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_local);
+                    far_local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_local, "global");
                     localPlannerClient(cur_pose_, far_local_goal);
-                    local_goal = rollingWindow(cur_pose_, local_path_, lookahead_d_);
+                    local_goal = rollingWindow(cur_pose_, local_path_, lookahead_d_, "local");
                     omniController(local_goal, cur_pose_);
                     if_obstacle_approached = false;
                 }
                 else
                 {
-                    local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_);
+                    local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_, "global");
                     omniController(local_goal, cur_pose_);
                 }
             }
             else if (robot_type_ == "diff")
             {
                 RobotState local_goal;
-                local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_local);
+                local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_local, "global");
                 diffController(local_goal, cur_pose_);
             }
         }
@@ -248,13 +248,13 @@ void pathTracker::timerCallback(const ros::TimerEvent& e)
             if (robot_type_ == "omni")
             {
                 RobotState local_goal;
-                local_goal = rollingWindow(cur_pose_, global_path_past_, lookahead_d_);
+                local_goal = rollingWindow(cur_pose_, global_path_past_, lookahead_d_, "global");
                 omniController(local_goal, cur_pose_);
             }
             else if (robot_type_ == "diff")
             {
                 RobotState local_goal;
-                local_goal = rollingWindow(cur_pose_, global_path_past_, lookahead_d_);
+                local_goal = rollingWindow(cur_pose_, global_path_past_, lookahead_d_, "global");
                 diffController(local_goal, cur_pose_);
             }
         }
@@ -454,12 +454,12 @@ void pathTracker::goalCallback(const geometry_msgs::PoseStamped::ConstPtr& pose_
         linear_brake_distance_ = linear_brake_distance_ratio_ * cur_pose_.distanceTo(goal_pose_);
     }
 
-    if_localgoal_final_reached = false;
+    if_globalpath_rw_finished = false;
     if_globalpath_switched = false;
     switchMode(Mode::GLOBALPATH_RECEIVED);
 }
 
-RobotState pathTracker::rollingWindow(RobotState cur_pos, std::vector<RobotState> path, double L_d)
+RobotState pathTracker::rollingWindow(RobotState cur_pos, std::vector<RobotState> path, double L_d, std::string mode)
 {
     int k = 1;
     int last_k = 0;
@@ -523,7 +523,7 @@ RobotState pathTracker::rollingWindow(RobotState cur_pos, std::vector<RobotState
         local_goal.theta_ = a.theta_;
     }
 
-    if (if_localgoal_final_reached)
+    if (if_globalpath_rw_finished)
     {
         // cout << "local goal set to path.back()" << endl;
         local_goal = path.back();
@@ -535,7 +535,7 @@ RobotState pathTracker::rollingWindow(RobotState cur_pos, std::vector<RobotState
     if (local_goal.distanceTo(path.back()) < 0.005)
     {
         local_goal = path.back();
-        if_localgoal_final_reached = true;
+        if_globalpath_rw_finished = true;
     }
 
     // for rviz visualization

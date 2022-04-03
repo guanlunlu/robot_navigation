@@ -1,4 +1,8 @@
+#ifndef __PATHTRACKER_H__
+#define __PATHTRACKER_H__
+
 #include <Eigen/Dense>
+#include <cmath>
 #include <math.h>
 #include <ros/ros.h>
 #include <ros/console.h>
@@ -17,6 +21,7 @@
 #include <nav_msgs/GetPlan.h>
 #include <nav_msgs/Path.h>
 #include <costmap_converter/ObstacleArrayMsg.h>
+#include <std_msgs/Bool.h>
 
 enum class Mode
 {
@@ -81,7 +86,8 @@ class pathTracker
     RobotState velocity_state_;
 
     bool if_obstacle_approached;
-    bool if_localgoal_final_reached;
+    bool if_globalpath_rw_finished;
+    bool if_localpath_rw_finished;
     bool if_reached_target_range;
 
     bool xy_goal_reached(RobotState cur_pose_, RobotState goal_pose_);
@@ -140,8 +146,11 @@ class pathTracker
     int rotate_direction_;
 
     // rollingWindow method flag
-    RobotState rollingWindow(RobotState cur_pos, std::vector<RobotState> global_path, double R);
+    RobotState rollingWindow(RobotState cur_pos, std::vector<RobotState> global_path, double R, std::string mode);
 
     void diffController(RobotState local_goal, RobotState cur_pos);
     void omniController(RobotState local_goal, RobotState cur_pos);
 };
+
+
+#endif
