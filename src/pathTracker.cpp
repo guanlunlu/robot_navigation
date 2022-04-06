@@ -1,5 +1,4 @@
 #include "pathTracker.h"
-#include "rollingWindow.h"
 
 using namespace std;
 
@@ -20,6 +19,120 @@ Eigen::Vector3d RobotState::getVector()
     Eigen::Vector3d vec;
     vec << x_, y_, theta_;
     return vec;
+}
+
+rollingWindow::rollingWindow(ros::NodeHandle& nh, std::vector<RobotState> path, double R, std::string topic)
+{
+    nh_ = nh;
+    window_radius_ = R;
+    rviz_topic = topic;
+
+    if_pathfinal_reached = false;
+    posePub_ = nh_.advertise<geometry_msgs::PoseStamped>(topic, 10);
+}
+
+RobotState rollingWindow::findLocalgoal(RobotState cur_pos)
+{
+    int k = 1;
+    int last_k = 0;
+    int d_k = 0;
+
+    RobotState a;
+    int a_idx = 0;
+    RobotState b;
+    int b_idx = 0;
+
+    RobotState local_goal;
+    bool if_b_asigned = false;
+    double r = window_radius_;
+
+    for (int i = 0; i < rolling_path_.size(); i++)
+    {
+        if (i == 1)
+            last_k = 0;
+        last_k = k;
+        if (cur_pos.distanceTo(rolling_path_.at(i)) >= r)
+            k = 1;
+        else
+            k = 0;
+
+        d_k = k - last_k;
+
+        if (d_k == 1)
+        {
+            b = rolling_path_.at(i);
+            if_b_asigned = true;
+            b_idx = i;
+            a_idx = i - 1;
+            break;
+        }
+    }
+
+    if (!if_b_asigned)
+    {
+        double min = 1000000;
+        for (int i = 0; i < rolling_path_.size(); i++)
+        {
+            if (cur_pos.distanceTo(rolling_path_.at(i)) < min)
+            {
+                min = cur_pos.distanceTo(rolling_path_.at(i));
+                b_idx = i;
+                a_idx = i - 1;
+                b = rolling_path_.at(i);
+            }
+        }
+    }
+
+    if (a_idx == -1)
+    {
+        local_goal = rolling_path_.at(b_idx);
+    }
+    else
+    {
+        a = rolling_path_.at(a_idx);
+        double d_ca = cur_pos.distanceTo(a);
+        double d_cb = cur_pos.distanceTo(b);
+        local_goal.x_ = a.x_ + (b.x_ - a.x_) * (r - d_ca) / (d_cb - d_ca);
+        local_goal.y_ = a.y_ + (b.y_ - a.y_) * (r - d_ca) / (d_cb - d_ca);
+        local_goal.theta_ = a.theta_;
+    }
+
+    if (if_pathfinal_reached)
+    {
+        // cout << "local goal set to path.back()" << endl;
+        local_goal = rolling_path_.back();
+    }
+
+    if (cur_pos.distanceTo(rolling_path_.back()) < r + 0.01)
+        local_goal = rolling_path_.back();
+
+    if (local_goal.distanceTo(rolling_path_.back()) < 0.005)
+    {
+        local_goal = rolling_path_.back();
+        if_pathfinal_reached = true;
+    }
+
+    // for rviz visualization
+    // geometry_msgs::PoseStamped pos_msg;
+    // pos_msg.header.frame_id = "map";
+    // pos_msg.header.stamp = ros::Time::now();
+    // pos_msg.pose.position.x = local_goal.x_;
+    // pos_msg.pose.position.y = local_goal.y_;
+    // tf2::Quaternion q;
+    // q.setRPY(0, 0, local_goal.theta_);
+    // pos_msg.pose.orientation.x = q.x();
+    // pos_msg.pose.orientation.y = q.y();
+    // pos_msg.pose.orientation.z = q.z();
+    // pos_msg.pose.orientation.w = q.w();
+    // posePub_.publish(pos_msg);
+
+    return local_goal;
+}
+
+void rollingWindow::updatePath(std::vector<RobotState> update_path)
+{
+    rolling_path_ = update_path;
+    if_pathfinal_reached = false;
 }
 
 pathTracker::pathTracker(ros::NodeHandle& nh, ros::NodeHandle& nh_local)
@@ -61,8 +174,22 @@ pathTracker::~pathTracker()
 
 void pathTracker::initialize()
 {
-    if_globalpath_rw_finished = false;
-    if_localpath_rw_finished = false;
+    // setup rolling window instance
+    apf_global_path_rw.nh_ = nh_;
+    apf_global_path_rw.rviz_topic = "APF_local_goal";
+    apf_global_path_rw.window_radius_ = far_lookahead_d_;
+
+    local_path_rw.nh_ = nh_;
+    local_path_rw.rviz_topic = "near_obs_local_goal";
+    local_path_rw.window_radius_ = lookahead_d_;
+
+    global_path_rw.nh_ = nh_;
+    global_path_rw.rviz_topic = "near_local_goal";
+    global_path_rw.window_radius_ = lookahead_d_;
+
+    // if_globalpath_rw_finished = false;
+    // if_localpath_rw_finished = false;
+
     if_globalpath_switched = false;
     if_obstacle_approached = false;
 
@@ -85,7 +212,7 @@ bool pathTracker::initializeParams(std_srvs::Empty::Request& req, std_srvs::Empt
     get_param_ok = nh_local_.param<string>("robot_type", robot_type_, "omni");
     get_param_ok = nh_local_.param<double>("control_frequency", control_frequency_, 50);
     get_param_ok = nh_local_.param<double>("lookahead_distance", lookahead_d_, 0.2);
-    get_param_ok = nh_local_.param<double>("lookahead_distance_local", lookahead_d_local, 1.0);
+    get_param_ok = nh_local_.param<double>("local_planner_lookahead_distance", far_lookahead_d_, 0.8);
 
     // linear parameter
     // acceleration
@@ -189,12 +316,14 @@ void pathTracker::timerCallback(const ros::TimerEvent& e)
             {
                 if (if_globalpath_switched == false)
                 {
-                    if_globalpath_rw_finished = false;
                     plannerClient(cur_pose_, goal_pose_);
+                    global_path_rw.updatePath(global_path_);
+
                     linear_brake_distance_ = linear_brake_distance_ratio_ * cur_pose_.distanceTo(goal_pose_);
                     if_globalpath_switched = true;
                 }
             }
+
             // ROS_INFO("Working Mode : TRACKING");
             if (robot_type_ == "omni")
             {
@@ -204,23 +333,21 @@ void pathTracker::timerCallback(const ros::TimerEvent& e)
                 // cout << "if_obstacle_approached = " << if_obstacle_approached << endl;
                 if (if_obstacle_approached == true)
                 {
-                    far_local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_local, "global");
+                    far_local_goal = apf_global_path_rw.findLocalgoal(cur_pose_);
                     localPlannerClient(cur_pose_, far_local_goal);
-                    local_goal = rollingWindow(cur_pose_, local_path_, lookahead_d_, "local");
+                    local_goal = local_path_rw.findLocalgoal(cur_pose_);
                     omniController(local_goal, cur_pose_);
+
                     if_obstacle_approached = false;
                 }
                 else
                 {
-                    local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_, "global");
+                    local_goal = global_path_rw.findLocalgoal(cur_pose_);
                     omniController(local_goal, cur_pose_);
                 }
             }
             else if (robot_type_ == "diff")
             {
-                RobotState local_goal;
-                local_goal = rollingWindow(cur_pose_, global_path_, lookahead_d_local, "global");
-                diffController(local_goal, cur_pose_);
             }
         }
         break;
@@ -248,14 +375,13 @@ void pathTracker::timerCallback(const ros::TimerEvent& e)
             if (robot_type_ == "omni")
             {
                 RobotState local_goal;
-                local_goal = rollingWindow(cur_pose_, global_path_past_, lookahead_d_, "global");
+                global_path_rw.rolling_path_ = global_path_past_;
+                local_goal = global_path_rw.findLocalgoal(cur_pose_);
+                // local_goal = rollingWindow(cur_pose_, global_path_past_, lookahead_d_, "global");
                 omniController(local_goal, cur_pose_);
             }
             else if (robot_type_ == "diff")
             {
-                RobotState local_goal;
-                local_goal = rollingWindow(cur_pose_, global_path_past_, lookahead_d_, "global");
-                diffController(local_goal, cur_pose_);
             }
         }
         break;
@@ -382,6 +508,7 @@ void pathTracker::localPlannerClient(RobotState cur_pos, RobotState goal_pos)
         nav_msgs::Path path_msg;
         path_msg.poses = srv.response.plan.poses;
         local_path_.clear();
+        local_path_.push_back(cur_pos);
 
         for (const auto& point : path_msg.poses)
         {
@@ -396,16 +523,15 @@ void pathTracker::localPlannerClient(RobotState cur_pos, RobotState goal_pos)
             pose.theta_ = yaw;
             local_path_.push_back(pose);
         }
-        local_path_ = orientationFilter(global_path_);
-        // ROS_INFO("Path received from local planner !");
-
-        // print global path
-        // ROS_INFO("--- global path ---");
-        // for (const auto& point : global_path_)
-        // {
-        //     ROS_INFO("(%f, %f, %f)", point.x_, point.y_, point.theta_);
-        // }
-        // ROS_INFO("--- ---");
+        local_path_.push_back(goal_pos);
+        ROS_INFO("--- local path ---");
+        for (const auto& point : local_path_)
+        {
+            ROS_INFO("(%f, %f, %f)", point.x_, point.y_, point.theta_);
+        }
+        ROS_INFO("--- ---");
+        local_path_ = orientationFilter(local_path_);
+        local_path_rw.updatePath(local_path_);
     }
     else
     {
@@ -454,104 +580,11 @@ void pathTracker::goalCallback(const geometry_msgs::PoseStamped::ConstPtr& pose_
         linear_brake_distance_ = linear_brake_distance_ratio_ * cur_pose_.distanceTo(goal_pose_);
     }
 
-    if_globalpath_rw_finished = false;
+    // if_globalpath_rw_finished = false;
+    global_path_rw.updatePath(global_path_);
+    apf_global_path_rw.updatePath(global_path_);
     if_globalpath_switched = false;
     switchMode(Mode::GLOBALPATH_RECEIVED);
-}
-
-RobotState pathTracker::rollingWindow(RobotState cur_pos, std::vector<RobotState> path, double L_d, std::string mode)
-{
-    int k = 1;
-    int last_k = 0;
-    int d_k = 0;
-    RobotState a;
-    int a_idx = 0;
-    RobotState b;
-    int b_idx = 0;
-    RobotState local_goal;
-    bool if_b_asigned = false;
-    double r = L_d;
-
-    for (int i = 0; i < path.size(); i++)
-    {
-        if (i == 1)
-            last_k = 0;
-        last_k = k;
-        if (cur_pos.distanceTo(path.at(i)) >= r)
-            k = 1;
-        else
-            k = 0;
-
-        d_k = k - last_k;
-
-        if (d_k == 1)
-        {
-            b = path.at(i);
-            if_b_asigned = true;
-            b_idx = i;
-            a_idx = i - 1;
-            break;
-        }
-    }
-
-    if (!if_b_asigned)
-    {
-        double min = 1000000;
-        for (int i = 0; i < path.size(); i++)
-        {
-            if (cur_pos.distanceTo(path.at(i)) < min)
-            {
-                min = cur_pos.distanceTo(path.at(i));
-                b_idx = i;
-                a_idx = i - 1;
-                b = path.at(i);
-            }
-        }
-    }
-
-    if (a_idx == -1)
-    {
-        local_goal = path.at(b_idx);
-    }
-    else
-    {
-        a = path.at(a_idx);
-        double d_ca = cur_pos.distanceTo(a);
-        double d_cb = cur_pos.distanceTo(b);
-        local_goal.x_ = a.x_ + (b.x_ - a.x_) * (r - d_ca) / (d_cb - d_ca);
-        local_goal.y_ = a.y_ + (b.y_ - a.y_) * (r - d_ca) / (d_cb - d_ca);
-        local_goal.theta_ = a.theta_;
-    }
-
-    if (if_globalpath_rw_finished)
-    {
-        // cout << "local goal set to path.back()" << endl;
-        local_goal = path.back();
-    }
-
-    if (cur_pos.distanceTo(path.back()) < r + 0.01)
-        local_goal = path.back();
-
-    if (local_goal.distanceTo(path.back()) < 0.005)
-    {
-        local_goal = path.back();
-        if_globalpath_rw_finished = true;
-    }
-
-    // for rviz visualization
-    geometry_msgs::PoseStamped pos_msg;
-    pos_msg.header.frame_id = "map";
-    pos_msg.header.stamp = ros::Time::now();
-    pos_msg.pose.position.x = local_goal.x_;
-    pos_msg.pose.position.y = local_goal.y_;
-    tf2::Quaternion q;
-    q.setRPY(0, 0, local_goal.theta_);
-    pos_msg.pose.orientation.x = q.x();
-    pos_msg.pose.orientation.y = q.y();
-    pos_msg.pose.orientation.z = q.z();
-    pos_msg.pose.orientation.w = q.w();
-    localgoalPub_.publish(pos_msg);
-    return local_goal;
 }
 
 std::vector<RobotState> pathTracker::orientationFilter(std::vector<RobotState> origin_path)
@@ -575,9 +608,11 @@ std::vector<RobotState> pathTracker::orientationFilter(std::vector<RobotState> o
     // theta_err = acos(init(0)*goal(0)+init(1)*goal(1));
     theta_err = fabs(angleLimitChecking(goal_theta - init_theta));
     d_theta = rotate_direction_ * theta_err / (origin_path.size() - 1);
+    cout << "path size" << origin_path.size()<< endl;
 
     RobotState point(origin_path.at(0).x_, origin_path.at(0).y_, init_theta);
     path.push_back(point);
+    // cout << "path size" << origin_path.size()<< endl;
 
     for (int i = 0; i < origin_path.size(); i++)
     {

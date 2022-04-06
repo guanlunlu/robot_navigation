@@ -51,6 +51,26 @@ class RobotState
     double distanceTo(RobotState);
 };
 
+class rollingWindow
+{
+  public:
+    rollingWindow(ros::NodeHandle& nh, std::vector<RobotState> path, double R, std::string rviz_topic);
+    rollingWindow()
+    {
+    }
+    
+    ros::NodeHandle nh_;
+    ros::Publisher posePub_;
+
+    std::vector<RobotState> rolling_path_;
+    std::string rviz_topic;
+    double window_radius_;
+    double if_pathfinal_reached;
+
+    RobotState findLocalgoal(RobotState cur_pose);
+    void updatePath(std::vector<RobotState>);
+};
+
 class pathTracker
 {
   public:
@@ -111,7 +131,7 @@ class pathTracker
     bool p_active_;
     double control_frequency_;
     double lookahead_d_;
-    double lookahead_d_local;
+    double far_lookahead_d_;
 
     double linear_kp_;
     double linear_max_vel_;
@@ -145,12 +165,13 @@ class pathTracker
     std::vector<RobotState> orientationFilter(std::vector<RobotState>);
     int rotate_direction_;
 
-    // rollingWindow method flag
-    RobotState rollingWindow(RobotState cur_pos, std::vector<RobotState> global_path, double R, std::string mode);
+    // rollingWindow method
+    rollingWindow apf_global_path_rw;
+    rollingWindow local_path_rw;
+    rollingWindow global_path_rw;
 
     void diffController(RobotState local_goal, RobotState cur_pos);
     void omniController(RobotState local_goal, RobotState cur_pos);
 };
-
 
 #endif
